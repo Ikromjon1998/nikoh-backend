@@ -9,7 +9,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.interest import Interest
     from app.models.profile import Profile
+    from app.models.verification import Verification
 
 
 class User(Base):
@@ -47,6 +49,18 @@ class User(Base):
         Boolean,
         default=False,
     )
+    is_admin: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+    )
+    verification_status: Mapped[str] = mapped_column(
+        String(20),
+        default="unverified",
+    )
+    verification_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -61,7 +75,22 @@ class User(Base):
         nullable=True,
     )
 
-    # Relationship
+    # Relationships
     profile: Mapped["Profile | None"] = relationship(
         "Profile", back_populates="user", uselist=False
+    )
+    sent_interests: Mapped[list["Interest"]] = relationship(
+        "Interest",
+        foreign_keys="Interest.from_user_id",
+        back_populates="from_user",
+    )
+    received_interests: Mapped[list["Interest"]] = relationship(
+        "Interest",
+        foreign_keys="Interest.to_user_id",
+        back_populates="to_user",
+    )
+    verifications: Mapped[list["Verification"]] = relationship(
+        "Verification",
+        foreign_keys="Verification.user_id",
+        back_populates="user",
     )

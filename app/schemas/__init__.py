@@ -1,3 +1,11 @@
+from app.schemas.interest import (
+    InterestCreate,
+    InterestListResponse,
+    InterestRespond,
+    InterestResponse,
+    InterestStatus,
+)
+from app.schemas.match import MatchListResponse, MatchResponse, UnmatchRequest
 from app.schemas.profile import (
     ProfileBrief,
     ProfileCreate,
@@ -20,4 +28,12 @@ __all__ = [
     "ProfileBrief",
     "ProfileSearch",
     "ProfileSearchResponse",
+    "InterestCreate",
+    "InterestRespond",
+    "InterestResponse",
+    "InterestListResponse",
+    "InterestStatus",
+    "MatchResponse",
+    "MatchListResponse",
+    "UnmatchRequest",
 ]

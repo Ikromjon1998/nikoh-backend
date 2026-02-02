@@ -14,6 +14,16 @@ class Settings(BaseSettings):
     FACE_MATCH_MANUAL_REVIEW_MIN: float = 0.35
     FACE_MATCH_MANUAL_REVIEW_MAX: float = 0.65
 
+    # Stripe payment settings
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_PUBLISHABLE_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+
+    # Verification pricing (in cents)
+    PRICE_STANDARD_VERIFICATION: int = 2000  # €20.00
+    PRICE_PRIORITY_VERIFICATION: int = 3500  # €35.00
+    PRICE_RENEWAL_VERIFICATION: int = 1500  # €15.00
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
 

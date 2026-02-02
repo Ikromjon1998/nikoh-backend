@@ -15,7 +15,7 @@ from app.schemas.verification import (
     VerificationResponse,
     VerificationStatusSummary,
 )
-from app.services import auto_verification_service, selfie_service, verification_service
+from app.services import auto_verification_service, payment_service, selfie_service, verification_service
 
 router = APIRouter(prefix="", tags=["verifications"])
 
@@ -127,10 +127,15 @@ async def upload_verification_document(
     """
     Upload a document for verification.
 
+    Prerequisites:
+    1. Complete payment (POST /payments/create-intent)
+    2. Upload selfie first for passports (POST /verifications/selfie)
+
     For passport verification:
-    1. Upload selfie first (POST /verifications/selfie)
-    2. Then upload passport
-    3. System will attempt auto-verification
+    1. Complete payment
+    2. Upload selfie
+    3. Upload passport
+    4. System will attempt auto-verification
 
     If auto-verification succeeds, status will be 'approved'.
     If uncertain, status will be 'pending' for manual review.
@@ -138,6 +143,17 @@ async def upload_verification_document(
     Accepted formats: JPEG, PNG, PDF
     Max file size: 10MB
     """
+    # Check for valid payment
+    payment = await payment_service.get_valid_payment_for_verification(
+        db, current_user.id
+    )
+    if not payment:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Payment required before uploading verification documents. "
+            "Please complete payment at POST /api/v1/payments/create-intent",
+        )
+
     # Validate file type
     is_valid, error_msg = verification_service.validate_file(file)
     if not is_valid:
@@ -161,6 +177,11 @@ async def upload_verification_document(
         document_type.value,
         document_country,
         file,
+    )
+
+    # Link payment to verification
+    await payment_service.link_payment_to_verification(
+        db, payment.id, verification.id
     )
 
     # Attempt auto-verification if enabled

@@ -96,7 +96,9 @@ async def approve_verification(
             detail="Verification not found",
         )
 
-    if verification.status != "pending":
+    # Allow approve for pending, processing (auto-verification), and manual_review statuses
+    reviewable_statuses = ("pending", "processing", "manual_review")
+    if verification.status not in reviewable_statuses:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot approve verification with status: {verification.status}",
@@ -125,7 +127,9 @@ async def reject_verification(
             detail="Verification not found",
         )
 
-    if verification.status != "pending":
+    # Allow reject for pending, processing (auto-verification), and manual_review statuses
+    reviewable_statuses = ("pending", "processing", "manual_review")
+    if verification.status not in reviewable_statuses:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot reject verification with status: {verification.status}",

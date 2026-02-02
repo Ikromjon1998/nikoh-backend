@@ -109,8 +109,10 @@ async def get_pending_verifications(
     page: int = 1,
     per_page: int = 20,
 ) -> tuple[list[Verification], int]:
-    """Get all pending verifications (for admin)."""
-    query = select(Verification).where(Verification.status == "pending")
+    """Get all verifications awaiting admin review (for admin)."""
+    # Include pending, processing (auto-verification running), and manual_review statuses
+    reviewable_statuses = ("pending", "processing", "manual_review")
+    query = select(Verification).where(Verification.status.in_(reviewable_statuses))
 
     # Get total count
     count_query = select(func.count()).select_from(query.subquery())

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
+    from app.models.payment import Payment
     from app.models.user import User
 
 
@@ -90,4 +91,7 @@ class Verification(Base):
     verified_by_user: Mapped["User | None"] = relationship(
         "User",
         foreign_keys=[verified_by],
+    )
+    payment: Mapped["Payment | None"] = relationship(
+        "Payment", back_populates="verification", uselist=False
     )

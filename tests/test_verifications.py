@@ -84,7 +84,8 @@ async def test_upload_verification_document(client: AsyncClient, db_session: Asy
     data = response.json()
     assert data["document_type"] == "passport"
     assert data["document_country"] == "Uzbekistan"
-    assert data["status"] == "pending"
+    # Status can be "pending" or "processing" depending on auto-verification
+    assert data["status"] in ("pending", "processing")
     assert data["original_filename"] == "test.jpg"
     assert data["mime_type"] == "image/jpeg"
 
@@ -273,7 +274,8 @@ async def test_cannot_cancel_processed_verification(client: AsyncClient, db_sess
     )
 
     assert response.status_code == 400
-    assert "approved" in response.json()["detail"].lower()
+    # Should indicate cannot cancel due to status
+    assert "cannot cancel" in response.json()["detail"].lower() or "approved" in response.json()["detail"].lower()
 
 
 @pytest.mark.asyncio

@@ -328,14 +328,16 @@ class TestFaceService:
         assert similarity > 0.99
 
     def test_compare_faces_different(self):
-        """Different random embeddings have low similarity."""
+        """Opposite embeddings have low similarity."""
         import numpy as np
 
-        embedding1 = np.random.rand(512).astype(np.float32)
-        embedding2 = np.random.rand(512).astype(np.float32)
+        # Create two opposite vectors for consistent low similarity
+        # Opposite vectors have cosine similarity of -1, normalized to 0
+        embedding1 = np.ones(512, dtype=np.float32)
+        embedding2 = -np.ones(512, dtype=np.float32)
         similarity = face_service.compare_faces(embedding1, embedding2)
-        # Random vectors should have similarity around 0.5
-        assert 0.3 < similarity < 0.7
+        # Opposite vectors should have near-zero similarity (cosine=-1 -> normalized=0)
+        assert similarity < 0.1
 
     def test_compare_faces_none(self):
         """Returns 0 when either embedding is None."""

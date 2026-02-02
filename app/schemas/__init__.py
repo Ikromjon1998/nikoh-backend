@@ -6,6 +6,16 @@ from app.schemas.interest import (
     InterestStatus,
 )
 from app.schemas.match import MatchListResponse, MatchResponse, UnmatchRequest
+from app.schemas.payment import (
+    PaymentCreate,
+    PaymentIntentResponse,
+    PaymentListResponse,
+    PaymentResponse,
+    PaymentStatus,
+    PaymentStatusResponse,
+    PaymentType,
+    PricingResponse,
+)
 from app.schemas.profile import (
     ProfileBrief,
     ProfileCreate,
@@ -59,4 +69,12 @@ __all__ = [
     "VerificationStatusSummary",
     "SelfieResponse",
     "SelfieStatusResponse",
+    "PaymentCreate",
+    "PaymentResponse",
+    "PaymentIntentResponse",
+    "PaymentListResponse",
+    "PaymentType",
+    "PaymentStatus",
+    "PricingResponse",
+    "PaymentStatusResponse",
 ]

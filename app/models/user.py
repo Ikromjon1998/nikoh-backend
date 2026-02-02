@@ -10,6 +10,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.interest import Interest
+    from app.models.payment import Payment
     from app.models.profile import Profile
     from app.models.selfie import Selfie
     from app.models.verification import Verification
@@ -97,4 +98,7 @@ class User(Base):
     )
     selfie: Mapped["Selfie | None"] = relationship(
         "Selfie", back_populates="user", uselist=False
+    )
+    payments: Mapped[list["Payment"]] = relationship(
+        "Payment", back_populates="user"
     )

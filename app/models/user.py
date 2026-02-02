@@ -11,6 +11,7 @@ from app.database import Base
 if TYPE_CHECKING:
     from app.models.interest import Interest
     from app.models.profile import Profile
+    from app.models.selfie import Selfie
     from app.models.verification import Verification
 
 
@@ -93,4 +94,7 @@ class User(Base):
         "Verification",
         foreign_keys="Verification.user_id",
         back_populates="user",
+    )
+    selfie: Mapped["Selfie | None"] = relationship(
+        "Selfie", back_populates="user", uselist=False
     )

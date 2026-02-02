@@ -14,7 +14,19 @@ from app.schemas.profile import (
     ProfileSearchResponse,
     ProfileUpdate,
 )
+from app.schemas.selfie import SelfieResponse, SelfieStatusResponse
 from app.schemas.user import Token, TokenPayload, UserCreate, UserLogin, UserResponse
+from app.schemas.verification import (
+    DocumentType,
+    VerificationAdminListResponse,
+    VerificationAdminResponse,
+    VerificationApprove,
+    VerificationListResponse,
+    VerificationReject,
+    VerificationResponse,
+    VerificationStatus,
+    VerificationStatusSummary,
+)
 
 __all__ = [
     "UserCreate",
@@ -36,4 +48,15 @@ __all__ = [
     "MatchResponse",
     "MatchListResponse",
     "UnmatchRequest",
+    "DocumentType",
+    "VerificationStatus",
+    "VerificationResponse",
+    "VerificationAdminResponse",
+    "VerificationListResponse",
+    "VerificationAdminListResponse",
+    "VerificationApprove",
+    "VerificationReject",
+    "VerificationStatusSummary",
+    "SelfieResponse",
+    "SelfieStatusResponse",
 ]

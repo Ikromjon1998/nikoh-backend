@@ -23,6 +23,9 @@ class UserResponse(BaseModel):
     status: str
     preferred_language: str
     email_verified: bool
+    is_admin: bool = False
+    verification_status: str = "unverified"
+    verification_expires_at: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -1,6 +1,8 @@
 from app.models.interest import Interest
 from app.models.match import Match
 from app.models.profile import Profile
+from app.models.selfie import Selfie
 from app.models.user import User
+from app.models.verification import Verification
 
-__all__ = ["User", "Profile", "Interest", "Match"]
+__all__ = ["User", "Profile", "Interest", "Match", "Verification", "Selfie"]

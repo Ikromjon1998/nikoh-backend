@@ -112,14 +112,14 @@ async def calculate_compatibility(
     location_match = True
     location_detail = "Location compatible"
     if user_preferences.preferred_countries:
-        candidate_country = candidate_profile.verified_nationality or candidate_profile.country
+        candidate_country = candidate_profile.verified_nationality or candidate_profile.verified_residence_country
         if not _check_list_match(user_preferences.preferred_countries, candidate_country):
             location_match = False
             location_detail = f"Country not in preferences"
         else:
             location_detail = f"Country matches preference"
     if location_match and user_preferences.preferred_cities:
-        if not _check_list_match(user_preferences.preferred_cities, candidate_profile.city):
+        if not _check_list_match(user_preferences.preferred_cities, candidate_profile.current_city):
             location_match = False
             location_detail = "City not in preferences"
     breakdown["location"] = _score_factor(location_match, 15, location_detail)
@@ -149,7 +149,7 @@ async def calculate_compatibility(
     # 5. Education (5 points)
     education_match = _check_list_match(
         user_preferences.preferred_education_levels,
-        candidate_profile.education_level,
+        candidate_profile.verified_education_level,
     )
     education_detail = "Education compatible" if education_match else "Education level not in preferences"
     breakdown["education"] = _score_factor(education_match, 5, education_detail)
@@ -159,7 +159,7 @@ async def calculate_compatibility(
     # 6. Marital status (10 points)
     marital_match = _check_list_match(
         user_preferences.preferred_marital_statuses,
-        candidate_profile.marital_status,
+        candidate_profile.verified_marital_status,
     )
     marital_detail = "Marital status compatible" if marital_match else "Marital status not in preferences"
     breakdown["marital_status"] = _score_factor(marital_match, 10, marital_detail)
@@ -245,7 +245,7 @@ async def calculate_compatibility(
 
         # Location check
         if candidate_preferences.preferred_countries:
-            user_country = user_profile.verified_nationality or user_profile.country
+            user_country = user_profile.verified_nationality or user_profile.verified_residence_country
             mutual_checks.append(
                 _check_list_match(candidate_preferences.preferred_countries, user_country)
             )
@@ -366,13 +366,20 @@ async def get_suggestions(
             candidate_preferences,
         )
 
+        # Construct display name from verified fields
+        display_name = None
+        if candidate_profile.verified_first_name:
+            display_name = candidate_profile.verified_first_name
+            if candidate_profile.verified_last_initial:
+                display_name += f" {candidate_profile.verified_last_initial}."
+
         suggestion = MatchSuggestion(
             profile_id=candidate_profile.id,
             user_id=candidate_profile.user_id,
-            display_name=candidate_profile.display_name,
+            display_name=display_name,
             age=calculate_age(candidate_profile.verified_birth_date),
-            city=candidate_profile.city,
-            country=candidate_profile.country,
+            city=candidate_profile.current_city,
+            country=candidate_profile.verified_nationality or candidate_profile.verified_residence_country,
             compatibility_score=compatibility.score,
             is_mutual_match=compatibility.mutual,
             is_verified=candidate_profile.user.verification_status == "verified",
@@ -417,7 +424,7 @@ async def get_who_likes_me(
 
     user_profile = user.profile
     user_age = calculate_age(user_profile.verified_birth_date)
-    user_country = user_profile.verified_nationality or user_profile.country
+    user_country = user_profile.verified_nationality or user_profile.verified_residence_country
 
     # Get users who have preferences set and are seeking user's gender
     query = (
@@ -463,13 +470,20 @@ async def get_who_likes_me(
 
         if matches:
             candidate_profile = pref.user.profile
+            # Construct display name from verified fields
+            display_name = None
+            if candidate_profile.verified_first_name:
+                display_name = candidate_profile.verified_first_name
+                if candidate_profile.verified_last_initial:
+                    display_name += f" {candidate_profile.verified_last_initial}."
+
             suggestion = MatchSuggestion(
                 profile_id=candidate_profile.id,
                 user_id=candidate_profile.user_id,
-                display_name=candidate_profile.display_name,
+                display_name=display_name,
                 age=calculate_age(candidate_profile.verified_birth_date),
-                city=candidate_profile.city,
-                country=candidate_profile.country,
+                city=candidate_profile.current_city,
+                country=candidate_profile.verified_nationality or candidate_profile.verified_residence_country,
                 compatibility_score=0,  # Will be calculated if needed
                 is_mutual_match=True,  # They match us, that's why they're here
                 is_verified=pref.user.verification_status == "verified",

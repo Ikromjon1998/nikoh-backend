@@ -121,8 +121,9 @@ async def test_get_suggestions_finds_matches(client: AsyncClient, db_session: As
     )
 
     # Activate the second user
+    from sqlalchemy import select
     result = await db_session.execute(
-        db_session.query(User).filter(User.id == uuid.UUID(user2_id))
+        select(User).where(User.id == uuid.UUID(user2_id))
     )
     user2 = result.scalar_one_or_none()
     if user2:

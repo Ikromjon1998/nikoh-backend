@@ -61,67 +61,7 @@ async def get_my_matches(
     )
 
 
-@router.get("/{match_id}", response_model=MatchResponse)
-async def get_match(
-    match_id: UUID,
-    current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> MatchResponse:
-    """Get specific match details."""
-    match = await match_service.get_match_by_id(db, match_id)
-    if not match:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Match not found",
-        )
-
-    # Must be part of the match
-    if match.user_a_id != current_user.id and match.user_b_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not your match",
-        )
-
-    response = MatchResponse.model_validate(match)
-    other_user_id = await _get_other_user_id(response, current_user.id)
-    return await _enrich_match_with_profile(db, response, other_user_id)
-
-
-@router.post("/{match_id}/unmatch", response_model=MatchResponse)
-async def unmatch(
-    match_id: UUID,
-    current_user: Annotated[UserResponse, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> MatchResponse:
-    """Unmatch with someone."""
-    match = await match_service.get_match_by_id(db, match_id)
-    if not match:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Match not found",
-        )
-
-    # Must be part of the match
-    if match.user_a_id != current_user.id and match.user_b_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not your match",
-        )
-
-    # Must be active
-    if match.status != "active":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Match is already unmatched",
-        )
-
-    updated_match = await match_service.unmatch(db, match, current_user.id)
-
-    response = MatchResponse.model_validate(updated_match)
-    other_user_id = await _get_other_user_id(response, current_user.id)
-    return await _enrich_match_with_profile(db, response, other_user_id)
-
-
+# NOTE: These specific routes MUST be defined before /{match_id} to avoid route conflicts
 @router.get("/suggestions", response_model=MatchSuggestionsResponse)
 async def get_match_suggestions(
     current_user: Annotated[UserResponse, Depends(get_current_user)],
@@ -188,3 +128,65 @@ async def get_who_likes_me(
         total_count=total,
         is_verified_user=is_verified,
     )
+
+
+# Dynamic routes MUST come after specific routes to avoid conflicts
+@router.get("/{match_id}", response_model=MatchResponse)
+async def get_match(
+    match_id: UUID,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> MatchResponse:
+    """Get specific match details."""
+    match = await match_service.get_match_by_id(db, match_id)
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Match not found",
+        )
+
+    # Must be part of the match
+    if match.user_a_id != current_user.id and match.user_b_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not your match",
+        )
+
+    response = MatchResponse.model_validate(match)
+    other_user_id = await _get_other_user_id(response, current_user.id)
+    return await _enrich_match_with_profile(db, response, other_user_id)
+
+
+@router.post("/{match_id}/unmatch", response_model=MatchResponse)
+async def unmatch(
+    match_id: UUID,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> MatchResponse:
+    """Unmatch with someone."""
+    match = await match_service.get_match_by_id(db, match_id)
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Match not found",
+        )
+
+    # Must be part of the match
+    if match.user_a_id != current_user.id and match.user_b_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not your match",
+        )
+
+    # Must be active
+    if match.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Match is already unmatched",
+        )
+
+    updated_match = await match_service.unmatch(db, match, current_user.id)
+
+    response = MatchResponse.model_validate(updated_match)
+    other_user_id = await _get_other_user_id(response, current_user.id)
+    return await _enrich_match_with_profile(db, response, other_user_id)

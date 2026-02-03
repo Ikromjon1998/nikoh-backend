@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -5,12 +6,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import router as v1_router
 from app.config import settings
-from app.database import init_db
+from app.database import check_db_connection
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    # Database tables are managed by Alembic migrations
+    # Run: alembic upgrade head
+    if await check_db_connection():
+        logger.info("Database connection successful")
+    else:
+        logger.warning("Database connection failed - ensure database is running")
     yield
 
 

@@ -48,7 +48,16 @@ Copy `.env.example` to `.env` and update values as needed:
 cp .env.example .env
 ```
 
-### 5. Run Server
+### 5. Run Database Migrations
+
+The project uses Alembic for database schema management:
+
+```bash
+# Apply all pending migrations
+alembic upgrade head
+```
+
+### 6. Run Server
 
 ```bash
 uvicorn app.main:app --reload
@@ -56,7 +65,7 @@ uvicorn app.main:app --reload
 
 The API will be available at `http://localhost:8000`
 
-### 6. Run Tests
+### 7. Run Tests
 
 ```bash
 pytest -v
@@ -105,31 +114,97 @@ curl http://localhost:8000/api/v1/auth/me \
   -H "Authorization: Bearer <your-access-token>"
 ```
 
+## Database Migrations
+
+The project uses **Alembic** for database migrations. This allows tracking schema changes and applying them consistently across environments.
+
+### Common Migration Commands
+
+```bash
+# Apply all pending migrations (run this first for new setups)
+alembic upgrade head
+
+# Create new migration after model changes
+alembic revision --autogenerate -m "description_of_change"
+
+# Rollback one migration
+alembic downgrade -1
+
+# Rollback to specific revision
+alembic downgrade <revision_id>
+
+# Show current revision
+alembic current
+
+# Show migration history
+alembic history
+```
+
+### Workflow for Model Changes
+
+1. Modify model in `app/models/`
+2. Generate migration:
+   ```bash
+   alembic revision --autogenerate -m "add_field_to_user"
+   ```
+3. **Review the generated migration file** (in `alembic/versions/`)
+4. Apply migration:
+   ```bash
+   alembic upgrade head
+   ```
+5. Commit both model changes and migration file
+
+### For Existing Databases
+
+If you already have tables and want to start using migrations:
+
+```bash
+# Mark database as already at current migration state
+alembic stamp head
+```
+
+### Production Deployment
+
+Always run migrations before starting the application:
+
+```bash
+alembic upgrade head && uvicorn app.main:app --host 0.0.0.0
+```
+
 ## Project Structure
 
 ```
 nikoh-backend/
+├── alembic/                 # Database migrations
+│   ├── env.py              # Migration environment config
+│   ├── script.py.mako      # Migration template
+│   └── versions/           # Migration files
 ├── app/
 │   ├── __init__.py
 │   ├── main.py              # FastAPI application
 │   ├── config.py            # Settings and configuration
 │   ├── database.py          # Database connection
 │   ├── models/              # SQLAlchemy models
-│   │   └── user.py
+│   │   ├── user.py
+│   │   ├── profile.py
+│   │   ├── interest.py
+│   │   ├── match.py
+│   │   ├── verification.py
+│   │   ├── selfie.py
+│   │   ├── payment.py
+│   │   └── search_preference.py
 │   ├── schemas/             # Pydantic schemas
-│   │   └── user.py
 │   ├── api/                 # API routes
 │   │   └── v1/
 │   │       ├── router.py
 │   │       └── endpoints/
-│   │           └── auth.py
 │   ├── core/                # Core utilities
 │   │   └── security.py
 │   └── services/            # Business logic
-│       └── user_service.py
 ├── tests/
 │   ├── conftest.py
-│   └── test_auth.py
+│   └── test_*.py
+├── alembic.ini              # Alembic configuration
 ├── .env
 ├── .env.example
 ├── .gitignore

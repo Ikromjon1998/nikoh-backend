@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from app.models.interest import Interest
     from app.models.payment import Payment
     from app.models.profile import Profile
+    from app.models.search_preference import SearchPreference
     from app.models.selfie import Selfie
     from app.models.verification import Verification
 
@@ -101,4 +102,7 @@ class User(Base):
     )
     payments: Mapped[list["Payment"]] = relationship(
         "Payment", back_populates="user"
+    )
+    search_preferences: Mapped["SearchPreference | None"] = relationship(
+        "SearchPreference", back_populates="user", uselist=False
     )

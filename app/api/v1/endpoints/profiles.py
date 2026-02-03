@@ -14,8 +14,9 @@ from app.schemas.profile import (
     ProfileSearchResponse,
     ProfileUpdate,
 )
+from app.schemas.search_preference import CompatibilityResponse
 from app.schemas.user import UserResponse
-from app.services import profile_service
+from app.services import matching_service, profile_service
 
 router = APIRouter(prefix="", tags=["profiles"])
 
@@ -115,3 +116,54 @@ async def search_profiles(
         page=search_params.page,
         per_page=search_params.per_page,
     )
+
+
+@router.get("/{profile_id}/compatibility", response_model=CompatibilityResponse)
+async def get_profile_compatibility(
+    profile_id: UUID,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> CompatibilityResponse:
+    """
+    Get compatibility score with a specific profile.
+
+    Returns:
+    - Overall score (0-100)
+    - Breakdown by category
+    - Whether it's a mutual match
+
+    Useful for showing "85% compatible" on profile views.
+    """
+    # Check profile exists
+    profile = await profile_service.get_profile_by_id(db, profile_id)
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found",
+        )
+
+    # Don't allow checking compatibility with own profile
+    if profile.user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot check compatibility with your own profile",
+        )
+
+    # Profile must be visible
+    if not profile.is_visible:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found",
+        )
+
+    compatibility = await matching_service.get_compatibility_with_profile(
+        db, current_user.id, profile_id
+    )
+
+    if not compatibility:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot calculate compatibility. Make sure you have a profile.",
+        )
+
+    return compatibility

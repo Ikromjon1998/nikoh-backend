@@ -24,6 +24,15 @@ from app.schemas.profile import (
     ProfileSearchResponse,
     ProfileUpdate,
 )
+from app.schemas.search_preference import (
+    CompatibilityBreakdown,
+    CompatibilityResponse,
+    MatchSuggestion,
+    MatchSuggestionsResponse,
+    SearchPreferenceCreate,
+    SearchPreferenceResponse,
+    WhoLikesMeResponse,
+)
 from app.schemas.selfie import SelfieResponse, SelfieStatusResponse
 from app.schemas.user import Token, TokenPayload, UserCreate, UserLogin, UserResponse
 from app.schemas.verification import (
@@ -77,4 +86,11 @@ __all__ = [
     "PaymentStatus",
     "PricingResponse",
     "PaymentStatusResponse",
+    "SearchPreferenceCreate",
+    "SearchPreferenceResponse",
+    "CompatibilityBreakdown",
+    "CompatibilityResponse",
+    "MatchSuggestion",
+    "MatchSuggestionsResponse",
+    "WhoLikesMeResponse",
 ]

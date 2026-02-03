@@ -148,7 +148,7 @@ async def handle_payment_succeeded(
         return None
 
     payment.status = PaymentStatus.COMPLETED
-    payment.completed_at = datetime.utcnow()
+    payment.completed_at = datetime.now(timezone.utc)
     if charge_id:
         payment.stripe_charge_id = charge_id
 
@@ -249,8 +249,7 @@ async def get_valid_payment_for_verification(
     Returns:
         Valid payment or None
     """
-    # Use timezone-aware datetime but strip tzinfo for comparison with naive DB timestamps
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
 
     result = await db.execute(
         select(Payment)
@@ -322,7 +321,7 @@ async def refund_payment(
         )
 
         payment.status = PaymentStatus.REFUNDED
-        payment.refunded_at = datetime.utcnow()
+        payment.refunded_at = datetime.now(timezone.utc)
         await db.commit()
         await db.refresh(payment)
 

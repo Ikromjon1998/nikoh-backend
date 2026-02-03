@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -249,7 +249,8 @@ async def get_valid_payment_for_verification(
     Returns:
         Valid payment or None
     """
-    cutoff = datetime.utcnow() - timedelta(days=30)
+    # Use timezone-aware datetime but strip tzinfo for comparison with naive DB timestamps
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
 
     result = await db.execute(
         select(Payment)

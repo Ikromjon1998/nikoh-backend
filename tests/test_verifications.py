@@ -1,4 +1,5 @@
 import io
+import uuid
 from pathlib import Path
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from httpx import AsyncClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.payment import Payment, PaymentStatus, PaymentType
 from app.models.user import User
 
 
@@ -65,10 +67,26 @@ def create_invalid_type_file() -> tuple[str, bytes, str]:
     return ("test.exe", b"test content", "application/octet-stream")
 
 
+async def create_payment(db: AsyncSession, user_id: str, payment_id: str = None) -> Payment:
+    """Create a completed payment for testing."""
+    payment = Payment(
+        user_id=UUID(user_id),
+        payment_type=PaymentType.STANDARD_VERIFICATION,
+        status=PaymentStatus.COMPLETED,
+        amount=2000,
+        currency="eur",
+        stripe_payment_intent_id=payment_id or f"pi_test_{uuid.uuid4().hex[:8]}",
+    )
+    db.add(payment)
+    await db.commit()
+    return payment
+
+
 @pytest.mark.asyncio
 async def test_upload_verification_document(client: AsyncClient, db_session: AsyncSession):
     """Can upload a valid document for verification."""
     token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
 
     response = await client.post(
         "/api/v1/verifications/upload",
@@ -93,7 +111,8 @@ async def test_upload_verification_document(client: AsyncClient, db_session: Asy
 @pytest.mark.asyncio
 async def test_upload_invalid_file_type(client: AsyncClient, db_session: AsyncSession):
     """Cannot upload file with invalid type."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
 
     response = await client.post(
         "/api/v1/verifications/upload",
@@ -112,7 +131,8 @@ async def test_upload_invalid_file_type(client: AsyncClient, db_session: AsyncSe
 @pytest.mark.asyncio
 async def test_upload_file_too_large(client: AsyncClient, db_session: AsyncSession):
     """Cannot upload file larger than 10MB."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
 
     response = await client.post(
         "/api/v1/verifications/upload",
@@ -131,10 +151,11 @@ async def test_upload_file_too_large(client: AsyncClient, db_session: AsyncSessi
 @pytest.mark.asyncio
 async def test_list_verifications(client: AsyncClient, db_session: AsyncSession):
     """Can list user's verifications."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
 
-    # Upload multiple documents
-    for doc_type in ["passport", "residence_permit"]:
+    # Upload multiple documents (each needs a payment)
+    for i, doc_type in enumerate(["passport", "residence_permit"]):
+        await create_payment(db_session, user_id, f"pi_test_list_{i}")
         await client.post(
             "/api/v1/verifications/upload",
             files={"file": create_test_file()},
@@ -159,7 +180,8 @@ async def test_list_verifications(client: AsyncClient, db_session: AsyncSession)
 @pytest.mark.asyncio
 async def test_get_verification(client: AsyncClient, db_session: AsyncSession):
     """Can get a specific verification."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
 
     upload_response = await client.post(
         "/api/v1/verifications/upload",
@@ -184,8 +206,9 @@ async def test_get_verification(client: AsyncClient, db_session: AsyncSession):
 @pytest.mark.asyncio
 async def test_get_other_users_verification_fails(client: AsyncClient, db_session: AsyncSession):
     """Cannot get another user's verification."""
-    token_a, _ = await create_user_with_profile(client, "usera@example.com")
+    token_a, user_id_a = await create_user_with_profile(client, "usera@example.com")
     token_b, _ = await create_user_with_profile(client, "userb@example.com")
+    await create_payment(db_session, user_id_a)
 
     upload_response = await client.post(
         "/api/v1/verifications/upload",
@@ -209,7 +232,8 @@ async def test_get_other_users_verification_fails(client: AsyncClient, db_sessio
 @pytest.mark.asyncio
 async def test_cancel_pending_verification(client: AsyncClient, db_session: AsyncSession):
     """Can cancel a pending verification."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
 
     upload_response = await client.post(
         "/api/v1/verifications/upload",
@@ -237,6 +261,7 @@ async def test_cannot_cancel_processed_verification(client: AsyncClient, db_sess
     token, user_id = await create_user_with_profile(client, "user@example.com")
     admin_token, admin_id = await create_user_with_profile(client, "admin@example.com")
     await make_user_admin(db_session, admin_id)
+    await create_payment(db_session, user_id)
 
     # Upload document
     upload_response = await client.post(
@@ -298,7 +323,8 @@ async def test_get_verification_status(client: AsyncClient, db_session: AsyncSes
 async def test_admin_list_pending_verifications(client: AsyncClient, db_session: AsyncSession):
     """Admin can list all pending verifications."""
     # Create regular user and upload doc
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
     await client.post(
         "/api/v1/verifications/upload",
         files={"file": create_test_file()},
@@ -343,6 +369,7 @@ async def test_admin_approve_verification(client: AsyncClient, db_session: Async
     token, user_id = await create_user_with_profile(client, "user@example.com")
     admin_token, admin_id = await create_user_with_profile(client, "admin@example.com")
     await make_user_admin(db_session, admin_id)
+    await create_payment(db_session, user_id)
 
     # Upload document
     upload_response = await client.post(
@@ -402,9 +429,10 @@ async def test_admin_approve_verification(client: AsyncClient, db_session: Async
 @pytest.mark.asyncio
 async def test_admin_reject_verification(client: AsyncClient, db_session: AsyncSession):
     """Admin can reject verification with reason."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
     admin_token, admin_id = await create_user_with_profile(client, "admin@example.com")
     await make_user_admin(db_session, admin_id)
+    await create_payment(db_session, user_id)
 
     # Upload document
     upload_response = await client.post(
@@ -436,9 +464,10 @@ async def test_admin_reject_verification(client: AsyncClient, db_session: AsyncS
 @pytest.mark.asyncio
 async def test_admin_cannot_approve_non_pending(client: AsyncClient, db_session: AsyncSession):
     """Admin cannot approve already processed verification."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
     admin_token, admin_id = await create_user_with_profile(client, "admin@example.com")
     await make_user_admin(db_session, admin_id)
+    await create_payment(db_session, user_id)
 
     # Upload and cancel
     upload_response = await client.post(
@@ -472,7 +501,8 @@ async def test_admin_cannot_approve_non_pending(client: AsyncClient, db_session:
 @pytest.mark.asyncio
 async def test_upload_pdf_document(client: AsyncClient, db_session: AsyncSession):
     """Can upload PDF document."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
 
     response = await client.post(
         "/api/v1/verifications/upload",
@@ -491,7 +521,8 @@ async def test_upload_pdf_document(client: AsyncClient, db_session: AsyncSession
 @pytest.mark.asyncio
 async def test_upload_png_document(client: AsyncClient, db_session: AsyncSession):
     """Can upload PNG document."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
 
     response = await client.post(
         "/api/v1/verifications/upload",
@@ -513,6 +544,7 @@ async def test_verification_status_after_approval(client: AsyncClient, db_sessio
     token, user_id = await create_user_with_profile(client, "user@example.com")
     admin_token, admin_id = await create_user_with_profile(client, "admin@example.com")
     await make_user_admin(db_session, admin_id)
+    await create_payment(db_session, user_id)
 
     # Check initial status
     status_response = await client.get(

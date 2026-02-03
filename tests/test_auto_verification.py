@@ -1,9 +1,13 @@
 """Tests for automated verification system."""
 
+import uuid
+from uuid import UUID
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.payment import Payment, PaymentStatus, PaymentType
 from app.services import face_service, mrz_service, ocr_service
 
 
@@ -46,6 +50,21 @@ def create_test_selfie() -> tuple[str, bytes, str]:
 def create_test_passport() -> tuple[str, bytes, str]:
     """Create a test passport image."""
     return ("passport.jpg", b"fake passport image content", "image/jpeg")
+
+
+async def create_payment(db: AsyncSession, user_id: str, payment_id: str = None) -> Payment:
+    """Create a completed payment for testing."""
+    payment = Payment(
+        user_id=UUID(user_id),
+        payment_type=PaymentType.STANDARD_VERIFICATION,
+        status=PaymentStatus.COMPLETED,
+        amount=2000,
+        currency="eur",
+        stripe_payment_intent_id=payment_id or f"pi_test_{uuid.uuid4().hex[:8]}",
+    )
+    db.add(payment)
+    await db.commit()
+    return payment
 
 
 # ============== Selfie Upload Tests ==============
@@ -366,7 +385,8 @@ class TestFaceService:
 @pytest.mark.asyncio
 async def test_upload_passport_triggers_processing(client: AsyncClient, db_session: AsyncSession):
     """Uploading passport triggers auto-verification processing."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
 
     response = await client.post(
         "/api/v1/verifications/upload",
@@ -388,7 +408,8 @@ async def test_upload_passport_triggers_processing(client: AsyncClient, db_sessi
 @pytest.mark.asyncio
 async def test_non_passport_goes_to_manual_review(client: AsyncClient, db_session: AsyncSession):
     """Non-passport documents go to manual review."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
 
     response = await client.post(
         "/api/v1/verifications/upload",
@@ -409,7 +430,8 @@ async def test_non_passport_goes_to_manual_review(client: AsyncClient, db_sessio
 @pytest.mark.asyncio
 async def test_passport_without_selfie_needs_manual_review(client: AsyncClient, db_session: AsyncSession):
     """Passport without selfie needs manual review."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
 
     # Upload passport without uploading selfie first
     response = await client.post(
@@ -431,7 +453,8 @@ async def test_passport_without_selfie_needs_manual_review(client: AsyncClient, 
 @pytest.mark.asyncio
 async def test_verification_flow_with_selfie(client: AsyncClient, db_session: AsyncSession):
     """Full verification flow: upload selfie then passport."""
-    token, _ = await create_user_with_profile(client, "user@example.com")
+    token, user_id = await create_user_with_profile(client, "user@example.com")
+    await create_payment(db_session, user_id)
 
     # Step 1: Upload selfie
     selfie_response = await client.post(

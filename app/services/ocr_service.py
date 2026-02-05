@@ -18,7 +18,9 @@ def _get_reader():
             import easyocr
 
             logger.info("Initializing EasyOCR reader...")
-            _reader = easyocr.Reader(["en", "ru", "uz"], gpu=False)
+            # Use compatible language list: English + Cyrillic languages
+            # Note: Uzbek uses Latin script, so English covers it
+            _reader = easyocr.Reader(["en", "ru"], gpu=False)
             logger.info("EasyOCR reader initialized successfully")
         except ImportError:
             logger.warning("EasyOCR not installed, OCR features disabled")

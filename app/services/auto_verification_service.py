@@ -1,6 +1,7 @@
 """Automated document verification service."""
 
 import logging
+import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import UUID
@@ -16,6 +17,53 @@ from app.models.verification import Verification
 from app.services import face_service, mrz_service, ocr_service
 
 logger = logging.getLogger(__name__)
+
+
+def _get_local_path(url_path: str) -> str:
+    """Convert URL path to local filesystem path."""
+    # URL path is like /uploads/verifications/... -> ./uploads/verifications/...
+    if url_path.startswith("/uploads"):
+        return "." + url_path
+    return url_path
+
+
+def _convert_pdf_to_image(pdf_path: str) -> str | None:
+    """
+    Convert first page of PDF to a temporary image file.
+
+    Args:
+        pdf_path: Path to the PDF file
+
+    Returns:
+        Path to temporary image file, or None if conversion failed
+    """
+    try:
+        from pdf2image import convert_from_path
+
+        if not Path(pdf_path).exists():
+            logger.error(f"PDF file not found: {pdf_path}")
+            return None
+
+        # Convert first page of PDF to image at high DPI for better MRZ detection
+        logger.info(f"Converting PDF to image: {pdf_path}")
+        images = convert_from_path(pdf_path, dpi=300, first_page=1, last_page=1)
+
+        if not images:
+            logger.error("PDF conversion returned no images")
+            return None
+
+        # Save to a temporary file
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        images[0].save(tmp.name, "PNG")
+        logger.info(f"PDF converted to image: {tmp.name}")
+        return tmp.name
+
+    except ImportError:
+        logger.warning("pdf2image not installed, PDF conversion disabled")
+        return None
+    except Exception as e:
+        logger.error(f"Error converting PDF to image: {e}")
+        return None
 
 
 class AutoVerificationResult:
@@ -86,7 +134,10 @@ async def process_verification_automatically(
             failure_reason=f"Verification status is {verification.status}, expected 'processing'"
         )
 
-    if not verification.file_path or not Path(verification.file_path).exists():
+    # Convert URL path to local path for file existence check
+    local_file_path = _get_local_path(verification.file_path) if verification.file_path else None
+    if not local_file_path or not Path(local_file_path).exists():
+        logger.error(f"Document file not found: {verification.file_path} (local: {local_file_path})")
         return AutoVerificationResult(failure_reason="Document file not found")
 
     # Route to appropriate processor based on document type
@@ -101,117 +152,154 @@ async def _process_passport(
     verification: Verification,
 ) -> AutoVerificationResult:
     """Process passport document with MRZ extraction and face comparison."""
-    file_path = verification.file_path
+    file_path = _get_local_path(verification.file_path)
+    temp_image_path = None
 
     # Convert PDF to image if needed
     if file_path.lower().endswith(".pdf"):
-        # For PDFs, extract text but require manual review
-        text = ocr_service.extract_text_from_pdf(file_path)
-        return AutoVerificationResult(
-            failure_reason="PDF passports require manual review",
-            needs_manual_review=True,
-            extracted_data={"raw_text": text[:1000] if text else None},
-        )
+        logger.info(f"Processing PDF passport: {file_path}")
+        temp_image_path = _convert_pdf_to_image(file_path)
+        if temp_image_path is None:
+            # Fallback to text extraction if PDF conversion fails
+            text = ocr_service.extract_text_from_pdf(file_path)
+            return AutoVerificationResult(
+                failure_reason="Failed to convert PDF to image for processing",
+                needs_manual_review=True,
+                extracted_data={"raw_text": text[:1000] if text else None},
+            )
+        # Use the converted image for processing
+        image_for_processing = temp_image_path
+    else:
+        image_for_processing = file_path
 
-    # Step 1: Extract MRZ
-    logger.info(f"Extracting MRZ from {file_path}")
-    mrz_data = mrz_service.extract_mrz(file_path)
+    try:
+        # Step 1: Extract MRZ
+        logger.info(f"Extracting MRZ from {image_for_processing}")
+        mrz_data = mrz_service.extract_mrz(image_for_processing)
 
-    if not mrz_data or not mrz_data.get("valid"):
-        # MRZ not found or invalid - try OCR fallback
-        logger.info("MRZ extraction failed, attempting OCR fallback")
-        text = ocr_service.extract_text(file_path)
+        if not mrz_data or not mrz_data.get("valid"):
+            # MRZ not found or invalid - try OCR fallback
+            logger.info("MRZ extraction failed, attempting OCR fallback")
+            if temp_image_path:
+                text = ocr_service.extract_text(temp_image_path)
+            else:
+                text = ocr_service.extract_text(file_path)
 
-        return AutoVerificationResult(
-            failure_reason="Could not extract valid MRZ from passport",
-            needs_manual_review=True,
-            extracted_data={
+            extracted_data = {
                 "raw_text": text[:1000] if text else None,
                 "mrz_data": mrz_data,
-            },
+            }
+            # Save extracted data and set to pending for manual review
+            verification.status = "pending"
+            verification.extracted_data = extracted_data
+            await db.commit()
+
+            return AutoVerificationResult(
+                failure_reason="Could not extract valid MRZ from passport",
+                needs_manual_review=True,
+                extracted_data=extracted_data,
+            )
+
+        logger.info(f"MRZ extracted successfully: {mrz_data.get('first_name')} {mrz_data.get('last_name')}")
+
+        # Step 2: Get user's selfie
+        selfie_result = await db.execute(
+            select(Selfie).where(Selfie.user_id == verification.user_id)
         )
+        selfie = selfie_result.scalar_one_or_none()
 
-    logger.info(f"MRZ extracted successfully: {mrz_data.get('first_name')} {mrz_data.get('last_name')}")
+        if not selfie or not selfie.face_embedding:
+            # No selfie uploaded yet - save extracted data for manual review
+            extracted_data = _mrz_to_extracted_data(mrz_data)
+            verification.status = "pending"
+            verification.extracted_data = extracted_data
+            await db.commit()
 
-    # Step 2: Get user's selfie
-    selfie_result = await db.execute(
-        select(Selfie).where(Selfie.user_id == verification.user_id)
-    )
-    selfie = selfie_result.scalar_one_or_none()
+            return AutoVerificationResult(
+                confidence=0.5,  # MRZ is valid but no face to compare
+                extracted_data=extracted_data,
+                failure_reason="No selfie uploaded for face comparison",
+                needs_manual_review=True,
+            )
 
-    if not selfie or not selfie.face_embedding:
-        # No selfie uploaded yet
-        return AutoVerificationResult(
-            confidence=0.5,  # MRZ is valid but no face to compare
-            extracted_data=_mrz_to_extracted_data(mrz_data),
-            failure_reason="No selfie uploaded for face comparison",
-            needs_manual_review=True,
-        )
+        # Step 3: Extract face from passport (use the converted image for PDFs)
+        logger.info("Extracting face from passport")
+        passport_face = face_service.extract_face(image_for_processing)
 
-    # Step 3: Extract face from passport
-    logger.info("Extracting face from passport")
-    passport_face = face_service.extract_face(file_path)
+        if passport_face is None:
+            # Face not detected - save extracted data for manual review
+            extracted_data = _mrz_to_extracted_data(mrz_data)
+            verification.status = "pending"
+            verification.extracted_data = extracted_data
+            await db.commit()
 
-    if passport_face is None:
-        return AutoVerificationResult(
-            confidence=0.5,
-            extracted_data=_mrz_to_extracted_data(mrz_data),
-            failure_reason="Could not detect face in passport photo",
-            needs_manual_review=True,
-        )
+            return AutoVerificationResult(
+                confidence=0.5,
+                extracted_data=extracted_data,
+                failure_reason="Could not detect face in passport photo",
+                needs_manual_review=True,
+            )
 
-    # Step 4: Compare faces
-    selfie_embedding = face_service.bytes_to_embedding(selfie.face_embedding)
-    face_similarity = face_service.compare_faces(passport_face, selfie_embedding)
+        # Step 4: Compare faces
+        selfie_embedding = face_service.bytes_to_embedding(selfie.face_embedding)
+        face_similarity = face_service.compare_faces(passport_face, selfie_embedding)
 
-    logger.info(f"Face comparison score: {face_similarity:.3f}")
+        logger.info(f"Face comparison score: {face_similarity:.3f}")
 
-    extracted_data = _mrz_to_extracted_data(mrz_data)
+        extracted_data = _mrz_to_extracted_data(mrz_data)
 
-    # Step 5: Make decision based on face match score
-    if face_similarity >= settings.FACE_MATCH_AUTO_APPROVE_THRESHOLD:
-        # High confidence - auto approve
-        await _auto_approve_verification(db, verification, extracted_data, mrz_data)
+        # Step 5: Make decision based on face match score
+        if face_similarity >= settings.FACE_MATCH_AUTO_APPROVE_THRESHOLD:
+            # High confidence - auto approve
+            await _auto_approve_verification(db, verification, extracted_data, mrz_data)
 
-        return AutoVerificationResult(
-            auto_verified=True,
-            confidence=face_similarity,
-            extracted_data=extracted_data,
-            needs_manual_review=False,
-            face_match_score=face_similarity,
-        )
+            return AutoVerificationResult(
+                auto_verified=True,
+                confidence=face_similarity,
+                extracted_data=extracted_data,
+                needs_manual_review=False,
+                face_match_score=face_similarity,
+            )
 
-    elif face_similarity <= settings.FACE_MATCH_AUTO_REJECT_THRESHOLD:
-        # Low confidence - auto reject
-        await _auto_reject_verification(
-            db,
-            verification,
-            f"Face match score too low ({face_similarity:.2f}). Possible identity mismatch.",
-        )
+        elif face_similarity <= settings.FACE_MATCH_AUTO_REJECT_THRESHOLD:
+            # Low confidence - auto reject
+            await _auto_reject_verification(
+                db,
+                verification,
+                f"Face match score too low ({face_similarity:.2f}). Possible identity mismatch.",
+            )
 
-        return AutoVerificationResult(
-            auto_verified=False,
-            confidence=face_similarity,
-            extracted_data=extracted_data,
-            failure_reason=f"Face match score too low: {face_similarity:.2f}",
-            needs_manual_review=False,
-            face_match_score=face_similarity,
-        )
+            return AutoVerificationResult(
+                auto_verified=False,
+                confidence=face_similarity,
+                extracted_data=extracted_data,
+                failure_reason=f"Face match score too low: {face_similarity:.2f}",
+                needs_manual_review=False,
+                face_match_score=face_similarity,
+            )
 
-    else:
-        # Medium confidence - manual review
-        verification.status = "pending"
-        verification.extracted_data = extracted_data
-        await db.commit()
+        else:
+            # Medium confidence - manual review
+            verification.status = "pending"
+            verification.extracted_data = extracted_data
+            await db.commit()
 
-        return AutoVerificationResult(
-            auto_verified=False,
-            confidence=face_similarity,
-            extracted_data=extracted_data,
-            failure_reason=f"Face match score uncertain ({face_similarity:.2f}), needs manual review",
-            needs_manual_review=True,
-            face_match_score=face_similarity,
-        )
+            return AutoVerificationResult(
+                auto_verified=False,
+                confidence=face_similarity,
+                extracted_data=extracted_data,
+                failure_reason=f"Face match score uncertain ({face_similarity:.2f}), needs manual review",
+                needs_manual_review=True,
+                face_match_score=face_similarity,
+            )
+    finally:
+        # Clean up temporary image file if created
+        if temp_image_path:
+            try:
+                Path(temp_image_path).unlink(missing_ok=True)
+                logger.info(f"Cleaned up temporary image: {temp_image_path}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up temp file {temp_image_path}: {e}")
 
 
 async def _process_other_document(
@@ -219,7 +307,7 @@ async def _process_other_document(
     verification: Verification,
 ) -> AutoVerificationResult:
     """Process non-passport documents with OCR."""
-    file_path = verification.file_path
+    file_path = _get_local_path(verification.file_path)
 
     # Extract text
     if file_path.lower().endswith(".pdf"):
@@ -228,6 +316,10 @@ async def _process_other_document(
         text = ocr_service.extract_text(file_path)
 
     if not text:
+        # No text extracted - set to pending for manual review
+        verification.status = "pending"
+        await db.commit()
+
         return AutoVerificationResult(
             failure_reason="Could not extract text from document",
             needs_manual_review=True,

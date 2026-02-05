@@ -2,6 +2,7 @@ from app.models.interest import Interest
 from app.models.match import Match
 from app.models.payment import Payment
 from app.models.profile import Profile
+from app.models.report import Report
 from app.models.search_preference import SearchPreference
 from app.models.selfie import Selfie
 from app.models.user import User
@@ -16,4 +17,5 @@ __all__ = [
     "Selfie",
     "Payment",
     "SearchPreference",
+    "Report",
 ]

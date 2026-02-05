@@ -1,16 +1,16 @@
 """MRZ (Machine Readable Zone) extraction and parsing service for passports."""
 
 import logging
+import re
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 def extract_mrz(image_path: str) -> dict | None:
     """
-    Extract and parse MRZ from passport image.
+    Extract and parse MRZ from passport image using OCR.
 
     Args:
         image_path: Path to the passport image
@@ -35,80 +35,189 @@ def extract_mrz(image_path: str) -> dict | None:
         return None
 
     try:
-        from passporteye import read_mrz
+        # Use OCR to extract text from the image
+        from app.services import ocr_service
 
-        # Extract MRZ from image
-        mrz_data = read_mrz(image_path)
+        logger.info(f"Extracting text from passport image: {image_path}")
+        text = ocr_service.extract_text(image_path)
 
-        if mrz_data is None:
-            logger.info(f"No MRZ found in image: {image_path}")
+        if not text:
+            logger.warning("No text extracted from image")
             return None
 
-        # Get the MRZ object
-        mrz = mrz_data.to_dict()
+        # Try to find MRZ lines in the extracted text
+        mrz_text = _find_mrz_in_text(text)
 
-        if not mrz:
+        if not mrz_text:
+            logger.info("No MRZ pattern found in extracted text")
             return None
 
-        # Parse the MRZ data
-        return _parse_mrz_data(mrz)
+        logger.info(f"Found MRZ text: {mrz_text[:50]}...")
 
-    except ImportError:
-        logger.warning("passporteye not installed, MRZ extraction disabled")
-        return None
+        # Parse the MRZ
+        return _parse_mrz_text(mrz_text)
+
     except Exception as e:
         logger.error(f"Error extracting MRZ from {image_path}: {e}")
         return None
 
 
-def _parse_mrz_data(mrz: dict) -> dict | None:
-    """Parse raw MRZ data into structured format."""
+def _find_mrz_in_text(text: str) -> str | None:
+    """
+    Find MRZ lines in OCR-extracted text.
+
+    MRZ for passports (TD3 format) consists of 2 lines of 44 characters each.
+    Line 1: P<COUNTRY_CODE<LAST_NAME<<FIRST_NAME<...
+    Line 2: DOC_NUMBER<CHECK<NATIONALITY...
+    """
+    # Clean up the text - remove spaces between characters that OCR might have added
+    lines = text.replace(" ", "").upper().split("\n")
+
+    # Also try splitting by common separators
+    if len(lines) < 2:
+        lines = re.split(r'[\n\r]+', text.replace(" ", "").upper())
+
+    # Look for lines that look like MRZ (contain < and are around 44 chars)
+    mrz_candidates = []
+    for line in lines:
+        # Clean the line
+        clean_line = re.sub(r'[^A-Z0-9<]', '', line)
+        # MRZ lines are typically 44 characters for TD3 (passport)
+        if len(clean_line) >= 40 and '<' in clean_line:
+            mrz_candidates.append(clean_line)
+
+    # Try to find two consecutive MRZ lines
+    if len(mrz_candidates) >= 2:
+        # Check if first line starts with P< (passport)
+        for i, line in enumerate(mrz_candidates[:-1]):
+            if line.startswith('P<') or line.startswith('P0<'):
+                # Normalize to exactly 44 chars
+                line1 = (line + '<' * 44)[:44]
+                line2 = (mrz_candidates[i + 1] + '<' * 44)[:44]
+                return line1 + '\n' + line2
+
+    # Alternative: look for P< pattern anywhere
+    full_text = text.replace(" ", "").replace("\n", "").upper()
+    match = re.search(r'(P[<0][A-Z]{3}[A-Z<]{39})', full_text)
+    if match:
+        start = match.start()
+        # Try to get 88 characters (two lines)
+        mrz_block = re.sub(r'[^A-Z0-9<]', '', full_text[start:start + 100])
+        if len(mrz_block) >= 88:
+            line1 = mrz_block[:44]
+            line2 = mrz_block[44:88]
+            return line1 + '\n' + line2
+
+    return None
+
+
+def _parse_mrz_text(mrz_text: str) -> dict | None:
+    """Parse MRZ text using the mrz library."""
     try:
-        # Extract fields from MRZ
-        raw_text = mrz.get("raw_text", "")
+        from mrz.checker.td3 import TD3CodeChecker
 
-        # Try to parse with mrz library for validation
+        # Clean and format the MRZ text
+        lines = mrz_text.strip().split('\n')
+        if len(lines) < 2:
+            # Try splitting by length
+            if len(mrz_text.replace('\n', '')) >= 88:
+                clean = mrz_text.replace('\n', '').replace(' ', '')
+                lines = [clean[:44], clean[44:88]]
+            else:
+                logger.warning("MRZ text doesn't have 2 lines")
+                return None
+
+        # Ensure each line is exactly 44 characters
+        line1 = (lines[0].strip() + '<' * 44)[:44]
+        line2 = (lines[1].strip() + '<' * 44)[:44]
+
+        mrz_string = line1 + '\n' + line2
+        logger.info(f"Parsing MRZ:\nLine1: {line1}\nLine2: {line2}")
+
+        checker = TD3CodeChecker(mrz_string)
+
+        # Even if not fully valid, try to extract data
+        fields = checker.fields
+
+        # Handle different mrz library versions - result might be bool or object
         try:
-            from mrz.checker.td3 import TD3CodeChecker
+            is_valid = checker.result.valid if hasattr(checker.result, 'valid') else bool(checker.result)
+        except Exception:
+            is_valid = False
 
-            checker = TD3CodeChecker(raw_text)
-            is_valid = checker.result.valid
-
-            if is_valid:
-                fields = checker.fields
-                return {
-                    "valid": True,
-                    "first_name": _clean_name(fields.name or ""),
-                    "last_name": _clean_name(fields.surname or ""),
-                    "birth_date": _parse_mrz_date(fields.birth_date),
-                    "expiry_date": _parse_mrz_date(fields.expiry_date),
-                    "nationality": fields.nationality or "",
-                    "document_number": fields.document_number or "",
-                    "sex": fields.sex or "",
-                    "country": fields.country or "",
-                    "raw_mrz": raw_text,
-                }
-        except ImportError:
-            logger.warning("mrz library not installed, using basic parsing")
-        except Exception as e:
-            logger.warning(f"MRZ validation failed: {e}, using basic parsing")
-
-        # Fallback: basic parsing from passporteye output
-        return {
-            "valid": mrz.get("valid_score", 0) > 50,
-            "first_name": _clean_name(mrz.get("names", "")),
-            "last_name": _clean_name(mrz.get("surname", "")),
-            "birth_date": _parse_mrz_date(mrz.get("date_of_birth", "")),
-            "expiry_date": _parse_mrz_date(mrz.get("expiration_date", "")),
-            "nationality": mrz.get("nationality", ""),
-            "document_number": mrz.get("number", ""),
-            "sex": mrz.get("sex", ""),
-            "country": mrz.get("country", ""),
-            "raw_mrz": raw_text,
+        result = {
+            "valid": is_valid,
+            "first_name": _clean_name(fields.name or ""),
+            "last_name": _clean_name(fields.surname or ""),
+            "birth_date": _parse_mrz_date(fields.birth_date),
+            "expiry_date": _parse_mrz_date(fields.expiry_date),
+            "nationality": fields.nationality or "",
+            "document_number": fields.document_number or "",
+            "sex": fields.sex or "",
+            "country": fields.country or "",
+            "raw_mrz": mrz_string,
         }
 
+        # If validation failed but we got some data, still return it
+        if not is_valid and (result["first_name"] or result["last_name"]):
+            logger.warning(f"MRZ validation failed but data extracted: {result}")
+
+        return result
+
+    except ImportError:
+        logger.warning("mrz library not installed")
+        return _manual_parse_mrz(mrz_text)
     except Exception as e:
-        logger.error(f"Error parsing MRZ data: {e}")
+        logger.error(f"Error parsing MRZ text: {e}")
+        # Try manual parsing as fallback
+        return _manual_parse_mrz(mrz_text)
+
+
+def _manual_parse_mrz(mrz_text: str) -> dict | None:
+    """Manually parse MRZ if the library fails."""
+    try:
+        lines = mrz_text.strip().split('\n')
+        if len(lines) < 2:
+            clean = mrz_text.replace('\n', '').replace(' ', '')
+            if len(clean) >= 88:
+                lines = [clean[:44], clean[44:88]]
+            else:
+                return None
+
+        line1 = lines[0].strip()
+        line2 = lines[1].strip()
+
+        # Line 1 format: P<COUNTRY<SURNAME<<GIVEN_NAMES<...
+        # Extract country (positions 2-5)
+        country = line1[2:5].replace('<', '')
+
+        # Extract names (after position 5)
+        names_part = line1[5:]
+        name_parts = names_part.split('<<')
+        surname = name_parts[0].replace('<', ' ').strip() if name_parts else ""
+        given_names = name_parts[1].replace('<', ' ').strip() if len(name_parts) > 1 else ""
+
+        # Line 2 format: DOC_NUMBER<CHECK<NATIONALITY<BIRTH<CHECK<SEX<EXPIRY<CHECK<...
+        doc_number = line2[0:9].replace('<', '')
+        nationality = line2[10:13].replace('<', '')
+        birth_date_str = line2[13:19]
+        sex = line2[20:21]
+        expiry_date_str = line2[21:27]
+
+        return {
+            "valid": False,  # Manual parsing, needs verification
+            "first_name": _clean_name(given_names),
+            "last_name": _clean_name(surname),
+            "birth_date": _parse_mrz_date(birth_date_str),
+            "expiry_date": _parse_mrz_date(expiry_date_str),
+            "nationality": nationality,
+            "document_number": doc_number,
+            "sex": sex,
+            "country": country,
+            "raw_mrz": mrz_text,
+        }
+    except Exception as e:
+        logger.error(f"Manual MRZ parsing failed: {e}")
         return None
 
 
@@ -191,34 +300,7 @@ def parse_mrz_string(mrz_string: str) -> dict | None:
     Returns:
         Parsed MRZ data or None
     """
-    try:
-        from mrz.checker.td3 import TD3CodeChecker
-
-        checker = TD3CodeChecker(mrz_string)
-
-        if not checker.result.valid:
-            logger.warning("MRZ string validation failed")
-            return None
-
-        fields = checker.fields
-        return {
-            "valid": True,
-            "first_name": _clean_name(fields.name or ""),
-            "last_name": _clean_name(fields.surname or ""),
-            "birth_date": _parse_mrz_date(fields.birth_date),
-            "expiry_date": _parse_mrz_date(fields.expiry_date),
-            "nationality": fields.nationality or "",
-            "document_number": fields.document_number or "",
-            "sex": fields.sex or "",
-            "country": fields.country or "",
-            "raw_mrz": mrz_string,
-        }
-    except ImportError:
-        logger.warning("mrz library not installed")
-        return None
-    except Exception as e:
-        logger.error(f"Error parsing MRZ string: {e}")
-        return None
+    return _parse_mrz_text(mrz_string)
 
 
 def get_country_name(country_code: str) -> str:

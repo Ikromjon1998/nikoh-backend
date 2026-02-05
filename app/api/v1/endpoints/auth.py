@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 from uuid import UUID
 
@@ -9,6 +10,8 @@ from app.core.security import create_access_token, decode_access_token
 from app.database import get_db
 from app.schemas.user import Token, UserCreate, UserResponse
 from app.services import user_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="", tags=["auth"])
 
@@ -46,15 +49,32 @@ async def register(
     user_data: UserCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> UserResponse:
-    existing_user = await user_service.get_user_by_email(db, user_data.email)
-    if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already registered",
-        )
+    try:
+        existing_user = await user_service.get_user_by_email(db, user_data.email)
+        if existing_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered",
+            )
 
-    user = await user_service.create_user(db, user_data)
-    return UserResponse.model_validate(user)
+        if user_data.phone:
+            existing_phone = await user_service.get_user_by_phone(db, user_data.phone)
+            if existing_phone:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number already registered",
+                )
+
+        user = await user_service.create_user(db, user_data)
+        return UserResponse.model_validate(user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Registration failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Registration failed: {str(e)}. Make sure database migrations have been run.",
+        )
 
 
 @router.post("/login", response_model=Token)
@@ -62,16 +82,25 @@ async def login(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Token:
-    user = await user_service.authenticate_user(db, form_data.username, form_data.password)
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    try:
+        user = await user_service.authenticate_user(db, form_data.username, form_data.password)
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Incorrect email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
-    access_token = create_access_token(str(user.id))
-    return Token(access_token=access_token)
+        access_token = create_access_token(str(user.id))
+        return Token(access_token=access_token)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Login failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Login failed: {str(e)}. Make sure database migrations have been run.",
+        )
 
 
 @router.get("/me", response_model=UserResponse)

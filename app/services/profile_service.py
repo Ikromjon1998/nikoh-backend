@@ -85,7 +85,14 @@ async def search_profiles(
     """
     Search profiles with filters.
     Returns (profiles, total_count) for pagination.
+
+    Automatically filters by opposite gender:
+    - Men see only women
+    - Women see only men
     """
+    # Get current user's profile to determine gender
+    current_profile = await get_profile_by_user_id(db, current_user_id)
+
     query = select(Profile).where(
         and_(
             Profile.user_id != current_user_id,
@@ -93,8 +100,14 @@ async def search_profiles(
         )
     )
 
-    # Apply filters
-    if filters.seeking_gender:
+    # Automatically filter by opposite gender (man-woman only)
+    if current_profile and current_profile.gender:
+        if current_profile.gender == "male":
+            query = query.where(Profile.gender == "female")
+        elif current_profile.gender == "female":
+            query = query.where(Profile.gender == "male")
+    elif filters.seeking_gender:
+        # Fallback to filter param if user has no profile
         query = query.where(Profile.gender == filters.seeking_gender.value)
 
     if filters.ethnicities:

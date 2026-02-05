@@ -7,12 +7,18 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_DAYS: int = 7
     APP_NAME: str = "Nikoh API"
 
+    # CORS settings (comma-separated list of origins)
+    CORS_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173"
+
     # Auto-verification settings
     ENABLE_AUTO_VERIFICATION: bool = True
     FACE_MATCH_AUTO_APPROVE_THRESHOLD: float = 0.65
     FACE_MATCH_AUTO_REJECT_THRESHOLD: float = 0.35
     FACE_MATCH_MANUAL_REVIEW_MIN: float = 0.35
     FACE_MATCH_MANUAL_REVIEW_MAX: float = 0.65
+
+    # Development mode - bypasses payment requirement for testing
+    DEV_BYPASS_PAYMENT: bool = True
 
     # Stripe payment settings
     STRIPE_SECRET_KEY: str = ""

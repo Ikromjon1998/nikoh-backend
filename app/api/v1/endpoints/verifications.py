@@ -1,8 +1,11 @@
+import logging
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.api.v1.endpoints.auth import get_current_user
 from app.config import settings
@@ -191,9 +194,22 @@ async def upload_verification_document(
         await db.commit()
 
         # Run auto-verification
-        result = await auto_verification_service.process_verification_automatically(
-            db, verification.id
-        )
+        try:
+            logger.info(f"Starting auto-verification for {verification.id}")
+            result = await auto_verification_service.process_verification_automatically(
+                db, verification.id
+            )
+            logger.info(
+                f"Auto-verification result for {verification.id}: "
+                f"auto_verified={result.auto_verified}, "
+                f"needs_manual_review={result.needs_manual_review}, "
+                f"failure_reason={result.failure_reason}"
+            )
+        except Exception as e:
+            logger.error(f"Auto-verification failed for {verification.id}: {e}", exc_info=True)
+            # Set status back to pending for manual review
+            verification.status = "pending"
+            await db.commit()
 
         # Refresh verification to get updated status
         await db.refresh(verification)

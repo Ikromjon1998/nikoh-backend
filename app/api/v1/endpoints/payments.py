@@ -44,6 +44,7 @@ async def create_payment_intent(
     Create a payment intent for verification fee.
 
     Returns client_secret to complete payment on frontend with Stripe.js.
+    In dev bypass mode, returns a completed payment immediately.
     """
     if not payment_service.is_stripe_available():
         raise HTTPException(
@@ -58,10 +59,15 @@ async def create_payment_intent(
             payment_data.payment_type,
         )
 
+        # Use "dev_bypass" as publishable key in dev mode
+        publishable_key = (
+            "dev_bypass" if settings.DEV_BYPASS_PAYMENT else settings.STRIPE_PUBLISHABLE_KEY
+        )
+
         return PaymentIntentResponse(
             payment_id=payment.id,
             client_secret=client_secret,
-            publishable_key=settings.STRIPE_PUBLISHABLE_KEY,
+            publishable_key=publishable_key,
             amount=payment.amount,
             currency=payment.currency,
         )

@@ -58,7 +58,8 @@ async def create_verification(
     with open(file_path, "wb") as f:
         f.write(file_content)
 
-    verification.file_path = str(file_path)
+    # Store URL path for static file serving (remove leading ./)
+    verification.file_path = "/" + str(file_path).lstrip("./")
 
     await db.commit()
     await db.refresh(verification)
@@ -119,9 +120,9 @@ async def get_pending_verifications(
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
-    # Apply pagination and ordering (oldest first for processing)
+    # Apply pagination and ordering (newest first)
     offset = (page - 1) * per_page
-    query = query.order_by(Verification.submitted_at.asc()).offset(offset).limit(per_page)
+    query = query.order_by(Verification.submitted_at.desc()).offset(offset).limit(per_page)
 
     result = await db.execute(query)
     verifications = list(result.scalars().all())
@@ -251,6 +252,8 @@ async def get_verification_status_summary(
     user_id: UUID,
 ) -> dict:
     """Get summary of user's verification status."""
+    from app.services import payment_service
+
     # Get user
     user_result = await db.execute(select(User).where(User.id == user_id))
     user = user_result.scalar_one()
@@ -260,6 +263,10 @@ async def get_verification_status_summary(
         select(Verification).where(Verification.user_id == user_id)
     )
     verifications = list(result.scalars().all())
+
+    # Check for valid payment
+    payment = await payment_service.get_valid_payment_for_verification(db, user_id)
+    has_valid_payment = payment is not None
 
     # Categorize verifications
     verified_documents = []
@@ -291,6 +298,9 @@ async def get_verification_status_summary(
         "pending_documents": pending_documents,
         "missing_required_documents": missing_required,
         "verification_expires_at": user.verification_expires_at,
+        "has_valid_payment": has_valid_payment,
+        "approved_verifications": len(verified_documents),
+        "document_types_verified": verified_documents,
     }
 
 
@@ -314,12 +324,20 @@ async def validate_file_size(file: UploadFile) -> tuple[bool, str]:
     return True, ""
 
 
+def _get_local_path(url_path: str) -> str:
+    """Convert URL path to local filesystem path."""
+    if url_path.startswith("/uploads"):
+        return "." + url_path
+    return url_path
+
+
 async def delete_verification_file(verification: Verification) -> None:
     """Delete verification file from filesystem."""
-    if verification.file_path and os.path.exists(verification.file_path):
-        os.remove(verification.file_path)
+    local_path = _get_local_path(verification.file_path) if verification.file_path else None
+    if local_path and os.path.exists(local_path):
+        os.remove(local_path)
         # Try to remove parent directories if empty
-        parent_dir = Path(verification.file_path).parent
+        parent_dir = Path(local_path).parent
         try:
             parent_dir.rmdir()
             parent_dir.parent.rmdir()

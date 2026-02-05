@@ -39,3 +39,54 @@ class Token(BaseModel):
 class TokenPayload(BaseModel):
     sub: str
     exp: int
+
+
+# Admin schemas
+class UserAdminResponse(BaseModel):
+    id: UUID
+    email: str
+    phone: str | None
+    status: str
+    preferred_language: str
+    email_verified: bool
+    is_admin: bool
+    verification_status: str
+    verification_expires_at: datetime | None
+    created_at: datetime
+    last_active_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class UserAdminListResponse(BaseModel):
+    users: list[UserAdminResponse]
+    total: int
+    page: int
+    per_page: int
+
+
+class UserBan(BaseModel):
+    reason: str | None = None
+
+
+class UserUnban(BaseModel):
+    note: str | None = None
+
+
+# Admin dashboard stats
+class AdminDashboardStats(BaseModel):
+    total_users: int
+    verified_users: int
+    pending_verifications: int
+    open_reports: int
+
+
+class SystemHealthStatus(BaseModel):
+    database: str  # "connected" or "disconnected"
+    payment_system: str  # "online" or "offline"
+    auto_verification: str  # "enabled" or "disabled"
+
+
+class AdminDashboardResponse(BaseModel):
+    stats: AdminDashboardStats
+    system_status: SystemHealthStatus

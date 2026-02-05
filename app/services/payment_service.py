@@ -32,7 +32,9 @@ def _get_stripe():
 
 
 def is_stripe_available() -> bool:
-    """Check if Stripe is configured and available."""
+    """Check if Stripe is configured and available (or dev bypass is enabled)."""
+    if settings.DEV_BYPASS_PAYMENT:
+        return True
     stripe = _get_stripe()
     return stripe is not None and bool(settings.STRIPE_SECRET_KEY)
 
@@ -76,12 +78,31 @@ async def create_payment_intent(
     Raises:
         ValueError: If Stripe is not available
     """
+    amount = get_price_for_type(payment_type)
+    description = get_description_for_type(payment_type)
+
+    # Dev bypass mode - create completed payment without Stripe
+    if settings.DEV_BYPASS_PAYMENT:
+        logger.warning("DEV_BYPASS_PAYMENT enabled - creating test payment without Stripe")
+        payment = Payment(
+            user_id=user_id,
+            payment_type=payment_type,
+            status=PaymentStatus.COMPLETED,
+            amount=amount,
+            currency="eur",
+            description=f"[DEV] {description}",
+            stripe_payment_intent_id=f"dev_pi_{uuid.uuid4().hex[:16]}",
+            completed_at=datetime.now(timezone.utc),
+        )
+        db.add(payment)
+        await db.commit()
+        await db.refresh(payment)
+        # Return fake client secret for dev mode
+        return payment, "dev_secret_bypass"
+
     stripe = _get_stripe()
     if stripe is None or not settings.STRIPE_SECRET_KEY:
         raise ValueError("Stripe is not configured")
-
-    amount = get_price_for_type(payment_type)
-    description = get_description_for_type(payment_type)
 
     # Create payment record first
     payment = Payment(
@@ -114,7 +135,7 @@ async def create_payment_intent(
 
         return payment, intent.client_secret
 
-    except stripe.error.StripeError as e:
+    except stripe.StripeError as e:
         logger.error(f"Stripe error creating payment intent: {e}")
         payment.status = PaymentStatus.FAILED
         payment.failure_reason = str(e)
@@ -328,7 +349,7 @@ async def refund_payment(
         logger.info(f"Payment {payment.id} refunded")
         return payment
 
-    except stripe.error.StripeError as e:
+    except stripe.StripeError as e:
         logger.error(f"Failed to refund payment {payment_id}: {e}")
         raise ValueError(f"Refund failed: {e}")
 
@@ -359,7 +380,7 @@ def verify_webhook_signature(payload: bytes, signature: str) -> dict | None:
             settings.STRIPE_WEBHOOK_SECRET,
         )
         return event
-    except stripe.error.SignatureVerificationError as e:
+    except stripe.SignatureVerificationError as e:
         logger.error(f"Invalid webhook signature: {e}")
         return None
     except ValueError as e:

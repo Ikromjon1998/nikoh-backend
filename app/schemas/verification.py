@@ -140,3 +140,6 @@ class VerificationStatusSummary(BaseModel):
     pending_documents: list[str]
     missing_required_documents: list[str]
     verification_expires_at: datetime | None
+    has_valid_payment: bool = False
+    approved_verifications: int = 0
+    document_types_verified: list[str] = []

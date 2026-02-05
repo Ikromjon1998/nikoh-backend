@@ -50,48 +50,56 @@ def upgrade() -> None:
 
         # Verified information (from documents)
         sa.Column('verified_first_name', sa.String(100), nullable=True),
-        sa.Column('verified_last_initial', sa.String(10), nullable=True),
+        sa.Column('verified_last_initial', sa.String(1), nullable=True),
         sa.Column('verified_birth_date', sa.Date(), nullable=True),
+        sa.Column('verified_birthplace_country', sa.String(100), nullable=True),
+        sa.Column('verified_birthplace_city', sa.String(200), nullable=True),
         sa.Column('verified_nationality', sa.String(100), nullable=True),
         sa.Column('verified_residence_country', sa.String(100), nullable=True),
+        sa.Column('verified_residence_status', sa.String(50), nullable=True),
         sa.Column('verified_marital_status', sa.String(50), nullable=True),
         sa.Column('verified_education_level', sa.String(50), nullable=True),
 
-        # Self-declared information
+        # Self-declared required
         sa.Column('gender', sa.String(20), nullable=False),
-        sa.Column('seeking_gender', sa.String(20), nullable=True),
-        sa.Column('display_name', sa.String(100), nullable=True),
-        sa.Column('height_cm', sa.Integer(), nullable=True),
-        sa.Column('ethnicity', sa.String(50), nullable=True),
-        sa.Column('marital_status', sa.String(50), nullable=True),
-        sa.Column('has_children', sa.Boolean(), nullable=True),
-        sa.Column('wants_children', sa.String(50), nullable=True),
-        sa.Column('education_level', sa.String(50), nullable=True),
-        sa.Column('occupation', sa.String(100), nullable=True),
-        sa.Column('religious_practice', sa.String(50), nullable=True),
-        sa.Column('languages', postgresql.ARRAY(sa.String(50)), nullable=True),
+        sa.Column('seeking_gender', sa.String(20), nullable=False),
 
-        # Location
-        sa.Column('current_city', sa.String(100), nullable=True),
-        sa.Column('current_country', sa.String(100), nullable=True),
-        sa.Column('willing_to_relocate', sa.Boolean(), nullable=True, server_default='false'),
+        # Self-declared optional - physical
+        sa.Column('height_cm', sa.Integer(), nullable=True),
+        sa.Column('weight_kg', sa.Integer(), nullable=True),
+        sa.Column('build', sa.String(30), nullable=True),
+
+        # Self-declared optional - background
+        sa.Column('ethnicity', sa.String(50), nullable=True),
+        sa.Column('ethnicity_other', sa.String(100), nullable=True),
+        sa.Column('languages', postgresql.JSON(), nullable=True, server_default='[]'),
+        sa.Column('original_region', sa.String(200), nullable=True),
+        sa.Column('current_city', sa.String(200), nullable=True),
+        sa.Column('living_situation', sa.String(50), nullable=True),
+
+        # Religious practice
+        sa.Column('religious_practice', sa.String(100), nullable=True),
 
         # Lifestyle
-        sa.Column('smoking', sa.String(50), nullable=True),
-        sa.Column('alcohol', sa.String(50), nullable=True),
-        sa.Column('diet', sa.String(50), nullable=True),
+        sa.Column('smoking', sa.String(30), nullable=True),
+        sa.Column('alcohol', sa.String(30), nullable=True),
+        sa.Column('diet', sa.String(30), nullable=True),
+
+        # Professional
+        sa.Column('profession', sa.String(200), nullable=True),
+        sa.Column('hobbies', postgresql.ARRAY(sa.String()), nullable=True, server_default='{}'),
 
         # Essays
         sa.Column('about_me', sa.Text(), nullable=True),
-        sa.Column('looking_for', sa.Text(), nullable=True),
-        sa.Column('family_values', sa.Text(), nullable=True),
+        sa.Column('family_meaning', sa.Text(), nullable=True),
+        sa.Column('ideal_partner', sa.Text(), nullable=True),
+        sa.Column('goals_dreams', sa.Text(), nullable=True),
+        sa.Column('message_to_family', sa.Text(), nullable=True),
 
-        # Visibility
+        # Profile status
         sa.Column('is_visible', sa.Boolean(), nullable=True, server_default='true'),
-        sa.Column('show_online_status', sa.Boolean(), nullable=True, server_default='true'),
-
-        # Profile completeness
-        sa.Column('completeness_score', sa.Integer(), nullable=True, server_default='0'),
+        sa.Column('is_complete', sa.Boolean(), nullable=True, server_default='false'),
+        sa.Column('profile_score', sa.Integer(), nullable=True, server_default='0'),
 
         # Timestamps
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
@@ -179,11 +187,11 @@ def upgrade() -> None:
         sa.Column('original_filename', sa.String(255), nullable=True),
         sa.Column('mime_type', sa.String(100), nullable=True),
         sa.Column('file_size', sa.Integer(), nullable=True),
-        sa.Column('status', sa.String(20), nullable=False, server_default='pending'),
         sa.Column('face_embedding', sa.LargeBinary(), nullable=True),
-        sa.Column('error_message', sa.Text(), nullable=True),
+        sa.Column('status', sa.String(20), nullable=False, server_default='pending'),
+        sa.Column('error_message', sa.String(500), nullable=True),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+        sa.Column('processed_at', sa.DateTime(timezone=True), nullable=True),
 
         sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),

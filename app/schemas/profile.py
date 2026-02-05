@@ -194,6 +194,7 @@ class ProfileResponse(BaseModel):
 
 class ProfileBrief(BaseModel):
     id: UUID
+    user_id: UUID
     verified_first_name: str | None
     verified_last_initial: str | None
     verified_birth_date: date | None

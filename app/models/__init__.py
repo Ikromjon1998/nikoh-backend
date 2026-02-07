@@ -1,5 +1,6 @@
 from app.models.interest import Interest
 from app.models.match import Match
+from app.models.message import Message
 from app.models.payment import Payment
 from app.models.profile import Profile
 from app.models.report import Report
@@ -13,6 +14,7 @@ __all__ = [
     "Profile",
     "Interest",
     "Match",
+    "Message",
     "Verification",
     "Selfie",
     "Payment",

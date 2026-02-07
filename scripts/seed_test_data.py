@@ -87,7 +87,7 @@ async def seed_profiles(db, users: list[User]) -> list[Profile]:
     """Create profiles for test users with proper gender distribution."""
     profiles = []
 
-    ethnicities = ["uzbek", "kazakh", "tajik", "kyrgyz", "russian", "mixed", "other"]
+    ethnicities = ["uzbek", "kazakh", "tajik", "kyrgyz", "turkmen", "tatar", "mixed", "other"]
     religious_practices = ["very_practicing", "practicing", "moderate", "cultural", "not_practicing"]
     marital_statuses = ["never_married", "divorced", "widowed"]
     education_levels = ["high_school", "bachelors", "masters", "phd", "other"]

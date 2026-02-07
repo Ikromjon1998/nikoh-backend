@@ -17,6 +17,7 @@ router.include_router(auth.router, prefix="/auth")
 router.include_router(profiles.router, prefix="/profiles")
 router.include_router(interests.router, prefix="/interests")
 router.include_router(matches.router, prefix="/matches")
+router.include_router(matches.messages_router)  # /messages endpoints
 router.include_router(verifications.router, prefix="/verifications")
 router.include_router(payments.router, prefix="/payments")
 router.include_router(preferences.router, prefix="/preferences")

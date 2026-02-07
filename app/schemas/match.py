@@ -14,7 +14,7 @@ class MatchResponse(BaseModel):
     created_at: datetime
 
     # Profile of the other person in the match
-    other_user_profile: dict | None = None
+    partner_profile: dict | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

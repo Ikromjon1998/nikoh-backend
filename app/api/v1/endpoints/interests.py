@@ -191,6 +191,78 @@ async def respond_to_interest(
     return await _enrich_interest_with_profile(db, response, interest.from_user_id)
 
 
+@router.post("/{interest_id}/accept", response_model=InterestResponse)
+async def accept_interest(
+    interest_id: UUID,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> InterestResponse:
+    """Accept an interest. Creates a Match if successful."""
+    interest = await interest_service.get_interest_by_id(db, interest_id)
+    if not interest:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Interest not found",
+        )
+
+    # Must be the recipient to accept
+    if interest.to_user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not your interest to accept",
+        )
+
+    # Must be pending
+    if interest.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Interest is not pending (status: {interest.status})",
+        )
+
+    updated_interest, match = await interest_service.respond_to_interest(
+        db, interest, "accept"
+    )
+
+    response = InterestResponse.model_validate(updated_interest)
+    return await _enrich_interest_with_profile(db, response, interest.from_user_id)
+
+
+@router.post("/{interest_id}/decline", response_model=InterestResponse)
+async def decline_interest(
+    interest_id: UUID,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> InterestResponse:
+    """Decline an interest."""
+    interest = await interest_service.get_interest_by_id(db, interest_id)
+    if not interest:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Interest not found",
+        )
+
+    # Must be the recipient to decline
+    if interest.to_user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not your interest to decline",
+        )
+
+    # Must be pending
+    if interest.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Interest is not pending (status: {interest.status})",
+        )
+
+    updated_interest, _ = await interest_service.respond_to_interest(
+        db, interest, "decline"
+    )
+
+    response = InterestResponse.model_validate(updated_interest)
+    return await _enrich_interest_with_profile(db, response, interest.from_user_id)
+
+
 @router.delete("/{interest_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def cancel_interest(
     interest_id: UUID,

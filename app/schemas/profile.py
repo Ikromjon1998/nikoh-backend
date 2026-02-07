@@ -14,6 +14,8 @@ class Build(str, Enum):
     slim = "slim"
     average = "average"
     athletic = "athletic"
+    muscular = "muscular"
+    curvy = "curvy"
     heavy = "heavy"
 
 
@@ -23,6 +25,9 @@ class Ethnicity(str, Enum):
     tajik = "tajik"
     kyrgyz = "kyrgyz"
     turkmen = "turkmen"
+    tatar = "tatar"
+    uyghur = "uyghur"
+    afghan = "afghan"
     mixed = "mixed"
     other = "other"
 

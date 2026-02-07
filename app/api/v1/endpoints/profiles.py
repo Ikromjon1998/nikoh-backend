@@ -72,14 +72,14 @@ async def update_my_profile(
     return ProfileResponse.model_validate(updated_profile)
 
 
-@router.get("/{profile_id}", response_model=ProfileResponse)
+@router.get("/{user_id}", response_model=ProfileResponse)
 async def get_profile(
-    profile_id: UUID,
+    user_id: UUID,
     current_user: Annotated[UserResponse, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> ProfileResponse:
-    """Get a profile by ID."""
-    profile = await profile_service.get_profile_by_id(db, profile_id)
+    """Get a profile by user ID."""
+    profile = await profile_service.get_profile_by_user_id(db, user_id)
 
     if not profile:
         raise HTTPException(
@@ -118,9 +118,9 @@ async def search_profiles(
     )
 
 
-@router.get("/{profile_id}/compatibility", response_model=CompatibilityResponse)
+@router.get("/{user_id}/compatibility", response_model=CompatibilityResponse)
 async def get_profile_compatibility(
-    profile_id: UUID,
+    user_id: UUID,
     current_user: Annotated[UserResponse, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> CompatibilityResponse:
@@ -135,7 +135,7 @@ async def get_profile_compatibility(
     Useful for showing "85% compatible" on profile views.
     """
     # Check profile exists
-    profile = await profile_service.get_profile_by_id(db, profile_id)
+    profile = await profile_service.get_profile_by_user_id(db, user_id)
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -157,7 +157,7 @@ async def get_profile_compatibility(
         )
 
     compatibility = await matching_service.get_compatibility_with_profile(
-        db, current_user.id, profile_id
+        db, current_user.id, profile.id
     )
 
     if not compatibility:

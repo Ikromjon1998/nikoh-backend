@@ -7,10 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.endpoints.auth import get_current_user
 from app.database import get_db
 from app.schemas.match import MatchListResponse, MatchResponse
+from app.schemas.message import ChatPreview, MessageCreate, MessageResponse, UnreadCountResponse
 from app.schemas.profile import ProfileBrief
 from app.schemas.search_preference import MatchSuggestionsResponse, WhoLikesMeResponse
 from app.schemas.user import UserResponse
-from app.services import match_service, matching_service, profile_service
+from app.services import match_service, matching_service, message_service, profile_service
 
 router = APIRouter(prefix="", tags=["matches"])
 
@@ -30,7 +31,7 @@ async def _enrich_match_with_profile(
     """Add other user's profile info to match response."""
     profile = await profile_service.get_profile_by_user_id(db, other_user_id)
     if profile:
-        match.other_user_profile = ProfileBrief.model_validate(profile).model_dump()
+        match.partner_profile = ProfileBrief.model_validate(profile).model_dump()
     return match
 
 
@@ -190,3 +191,132 @@ async def unmatch(
     response = MatchResponse.model_validate(updated_match)
     other_user_id = await _get_other_user_id(response, current_user.id)
     return await _enrich_match_with_profile(db, response, other_user_id)
+
+
+# ==================== Message Endpoints ====================
+
+
+@router.get("/{match_id}/messages", response_model=list[MessageResponse])
+async def get_messages(
+    match_id: UUID,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+) -> list[MessageResponse]:
+    """Get messages for a match."""
+    # Verify user is part of the match
+    match = await match_service.get_match_by_id(db, match_id)
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Match not found",
+        )
+
+    if match.user_a_id != current_user.id and match.user_b_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not your match",
+        )
+
+    messages = await message_service.get_messages(db, match_id, skip, limit)
+
+    # Mark messages as read (messages not sent by current user)
+    await message_service.mark_all_messages_as_read(db, match_id, current_user.id)
+
+    return [MessageResponse.model_validate(m) for m in messages]
+
+
+@router.post("/{match_id}/messages", response_model=MessageResponse, status_code=status.HTTP_201_CREATED)
+async def send_message(
+    match_id: UUID,
+    data: MessageCreate,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> MessageResponse:
+    """Send a message in a match."""
+    # Verify user is part of the match
+    match = await match_service.get_match_by_id(db, match_id)
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Match not found",
+        )
+
+    if match.user_a_id != current_user.id and match.user_b_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not your match",
+        )
+
+    # Match must be active
+    if match.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot send messages in an inactive match",
+        )
+
+    message = await message_service.create_message(
+        db, match_id, current_user.id, data.content
+    )
+
+    return MessageResponse.model_validate(message)
+
+
+@router.post("/{match_id}/messages/{message_id}/read", status_code=status.HTTP_204_NO_CONTENT)
+async def mark_message_read(
+    match_id: UUID,
+    message_id: UUID,
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> None:
+    """Mark a specific message as read."""
+    # Verify user is part of the match
+    match = await match_service.get_match_by_id(db, match_id)
+    if not match:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Match not found",
+        )
+
+    if match.user_a_id != current_user.id and match.user_b_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not your match",
+        )
+
+    message = await message_service.get_message_by_id(db, message_id)
+    if not message or message.match_id != match_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Message not found",
+        )
+
+    # Only the recipient can mark as read
+    if message.sender_id == current_user.id:
+        return  # Can't mark own message as read
+
+    await message_service.mark_message_as_read(db, message)
+
+
+# Global message endpoints (not under a specific match)
+messages_router = APIRouter(prefix="/messages", tags=["messages"])
+
+
+@messages_router.get("/previews", response_model=list[ChatPreview])
+async def get_chat_previews(
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> list[ChatPreview]:
+    """Get chat previews for all active matches."""
+    return await message_service.get_chat_previews(db, current_user.id)
+
+
+@messages_router.get("/unread-count", response_model=UnreadCountResponse)
+async def get_unread_count(
+    current_user: Annotated[UserResponse, Depends(get_current_user)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> UnreadCountResponse:
+    """Get total unread message count."""
+    count = await message_service.get_unread_count(db, current_user.id)
+    return UnreadCountResponse(count=count)
